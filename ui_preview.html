@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gestion de Stock — Inventaire</title>
+<style>
+  /* ── Reset & Base ──────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+    background: #F5F5F5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Toolbar ────────────────────────────────────────────────── */
+  #toolbar {
+    background: #2C3E50;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    flex-shrink: 0;
+  }
+  #toolbar button {
+    background: #3498DB;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+  }
+  #toolbar button:hover { background: #2980B9; }
+  #toolbar button.danger  { background: #E74C3C; }
+  #toolbar button.danger:hover { background: #C0392B; }
+  #toolbar button.success { background: #27AE60; }
+  #toolbar button.success:hover { background: #1E8449; }
+  #toolbar button.toggle  { background: #7F8C8D; }
+  #toolbar button.toggle.active,
+  #toolbar button.toggle:hover { background: #E67E22; }
+  .sep {
+    width: 1px; height: 28px;
+    background: rgba(255,255,255,.2);
+    margin: 0 4px;
+  }
+
+  /* ── Search bar ─────────────────────────────────────────────── */
+  #search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: #fff;
+    border-bottom: 1px solid #DCDCDC;
+    flex-shrink: 0;
+  }
+  #search-bar label { color: #555; font-weight: 600; }
+  #search-input {
+    flex: 1;
+    border: 1px solid #BDC3C7;
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  #search-input:focus { border-color: #3498DB; }
+
+  /* ── Table ──────────────────────────────────────────────────── */
+  #table-wrapper {
+    flex: 1;
+    overflow: auto;
+    background: #fff;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead th {
+    background: #2C3E50;
+    color: #fff;
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  thead th:hover { background: #34495E; }
+  thead th .sort-icon { margin-left: 4px; opacity: .5; font-size: 10px; }
+  thead th.sorted .sort-icon { opacity: 1; }
+  thead th.num { text-align: right; }
+
+  tbody tr { border-bottom: 1px solid #DCDCDC; transition: background .1s; }
+  tbody tr:nth-child(even) { background: #F9F9F9; }
+  tbody tr:hover { background: #EBF5FB; }
+  tbody tr.selected { background: #AED6F1 !important; color: #1A252F; }
+
+  tbody td { padding: 8px 12px; vertical-align: middle; }
+  tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Low-stock row */
+  tbody tr.low-stock td {
+    background: #FFDDC1;
+    color: #8B2000;
+    font-weight: 700;
+  }
+  tbody tr.low-stock:hover td { background: #FFCBA4; }
+  tbody tr.low-stock.selected td { background: #F5CBA7 !important; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .badge-warning { background: #E67E22; color: #fff; }
+  .badge-ok      { background: #27AE60; color: #fff; }
+
+  /* ── Status bar ─────────────────────────────────────────────── */
+  #status-bar {
+    background: #ECF0F1;
+    border-top: 1px solid #D5D8DC;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: #555;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  #status-bar .warn { color: #E67E22; font-weight: 700; }
+
+  /* ── Modal overlay ──────────────────────────────────────────── */
+  .overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .overlay.open { display: flex; }
+
+  .modal {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.25);
+    width: 440px;
+    max-width: 95vw;
+    padding: 24px;
+    animation: pop .15s ease;
+  }
+  @keyframes pop {
+    from { transform: scale(.95); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+  .modal h2 {
+    font-size: 16px;
+    color: #2C3E50;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #3498DB;
+  }
+
+  .form-row {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 14px;
+    gap: 4px;
+  }
+  .form-row label {
+    font-weight: 600;
+    color: #34495E;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+  }
+  .form-row label span.req { color: #E74C3C; margin-left: 2px; }
+  .form-row input, .form-row select {
+    border: 1px solid #BDC3C7;
+    border-radius: 4px;
+    padding: 7px 10px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .form-row input:focus, .form-row select:focus { border-color: #3498DB; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #DCDCDC;
+  }
+  .modal-footer button {
+    padding: 8px 20px;
+    border-radius: 4px;
+    border: none;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background .15s;
+  }
+  .btn-cancel { background: #ECF0F1; color: #555; }
+  .btn-cancel:hover { background: #D5D8DC; }
+  .btn-ok { background: #3498DB; color: #fff; }
+  .btn-ok:hover { background: #2980B9; }
+
+  /* ── Confirm dialog ─────────────────────────────────────────── */
+  #confirm-modal { width: 380px; }
+  #confirm-modal p { color: #555; line-height: 1.6; margin-bottom: 4px; }
+  .btn-delete { background: #E74C3C; color: #fff; }
+  .btn-delete:hover { background: #C0392B; }
+
+  /* ── Toast ──────────────────────────────────────────────────── */
+  #toast {
+    position: fixed;
+    bottom: 40px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: #2C3E50;
+    color: #fff;
+    padding: 10px 24px;
+    border-radius: 20px;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity .25s, transform .25s;
+    z-index: 200;
+    pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── Empty state ────────────────────────────────────────────── */
+  #empty-row td {
+    text-align: center;
+    padding: 40px;
+    color: #AAA;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ TOOLBAR ═══════════════════════════ -->
+<div id="toolbar">
+  <button class="success" onclick="openAddModal()">＋&nbsp; Ajouter</button>
+  <div class="sep"></div>
+  <button onclick="openEditModal()">✎&nbsp; Modifier</button>
+  <div class="sep"></div>
+  <button class="danger" onclick="openConfirm()">✕&nbsp; Supprimer</button>
+  <div class="sep"></div>
+  <button onclick="loadTable()">↻&nbsp; Actualiser</button>
+  <div class="sep"></div>
+  <button class="toggle" id="btn-low-stock" onclick="toggleLowStock(this)">⚠&nbsp; Stock faible</button>
+</div>
+
+<!-- ═══════════════════════════ SEARCH ════════════════════════════ -->
+<div id="search-bar">
+  <label for="search-input">Recherche :</label>
+  <input id="search-input" type="search" placeholder="Rechercher par nom ou référence…"
+         oninput="onSearch()" />
+</div>
+
+<!-- ═══════════════════════════ TABLE ═════════════════════════════ -->
+<div id="table-wrapper">
+  <table id="product-table">
+    <thead>
+      <tr>
+        <th class="num" data-col="0" onclick="sortTable(0)">ID <span class="sort-icon">▲</span></th>
+        <th data-col="1" onclick="sortTable(1)">Nom <span class="sort-icon">⇅</span></th>
+        <th data-col="2" onclick="sortTable(2)">Référence <span class="sort-icon">⇅</span></th>
+        <th data-col="3" onclick="sortTable(3)">Catégorie <span class="sort-icon">⇅</span></th>
+        <th class="num" data-col="4" onclick="sortTable(4)">Quantité <span class="sort-icon">⇅</span></th>
+        <th class="num" data-col="5" onclick="sortTable(5)">Prix (€) <span class="sort-icon">⇅</span></th>
+        <th class="num" data-col="6" onclick="sortTable(6)">Seuil alerte <span class="sort-icon">⇅</span></th>
+        <th>Statut</th>
+      </tr>
+    </thead>
+    <tbody id="table-body"></tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════ STATUS BAR ════════════════════════ -->
+<div id="status-bar">
+  <span id="status-count">0 produit(s) affiché(s)</span>
+  <span id="status-low" class="warn" style="display:none"></span>
+</div>
+
+<!-- ═══════════════════════════ MODAL FORM ════════════════════════ -->
+<div class="overlay" id="form-overlay">
+  <div class="modal">
+    <h2 id="modal-title">Ajouter un produit</h2>
+    <div class="form-row">
+      <label>Nom <span class="req">*</span></label>
+      <input id="f-nom" type="text" placeholder="Ex. : Ordinateur portable" />
+    </div>
+    <div class="form-row">
+      <label>Référence <span class="req">*</span></label>
+      <input id="f-ref" type="text" placeholder="Ex. : REF-001" />
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label>Quantité <span class="req">*</span></label>
+        <input id="f-qty" type="number" min="0" value="0" />
+      </div>
+      <div class="form-row">
+        <label>Prix (€) <span class="req">*</span></label>
+        <input id="f-prix" type="number" min="0" step="0.01" value="0.00" />
+      </div>
+      <div class="form-row">
+        <label>Seuil alerte</label>
+        <input id="f-seuil" type="number" min="0" value="5" />
+      </div>
+      <div class="form-row">
+        <label>Catégorie</label>
+        <input id="f-cat" type="text" placeholder="Ex. : Informatique" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">Annuler</button>
+      <button class="btn-ok"     onclick="submitForm()">Valider</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ CONFIRM DIALOG ════════════════════ -->
+<div class="overlay" id="confirm-overlay">
+  <div class="modal" id="confirm-modal">
+    <h2>Confirmer la suppression</h2>
+    <p>Voulez-vous vraiment supprimer ce produit ?</p>
+    <p><strong>Cette action est irréversible.</strong></p>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeConfirm()">Non, annuler</button>
+      <button class="btn-delete" onclick="deleteSelected()">Oui, supprimer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ TOAST ═════════════════════════════ -->
+<div id="toast"></div>
+
+<!-- ═══════════════════════════ SCRIPT ════════════════════════════ -->
+<script>
+/* ─── Sample data (simulates SQLite rows) ─────────────────────── */
+let products = [
+  { id:1, nom:"Ordinateur portable Dell XPS", reference:"REF-001", categorie:"Informatique", quantite:12, prix:1199.99, seuil:5 },
+  { id:2, nom:"Souris sans fil Logitech",     reference:"REF-002", categorie:"Informatique", quantite:3,  prix:29.90,   seuil:5 },
+  { id:3, nom:"Clavier mécanique AZERTY",     reference:"REF-003", categorie:"Informatique", quantite:7,  prix:89.50,   seuil:5 },
+  { id:4, nom:"Écran 27\" 4K Samsung",        reference:"REF-004", categorie:"Informatique", quantite:2,  prix:449.00,  seuil:3 },
+  { id:5, nom:"Câble HDMI 2m",                reference:"REF-005", categorie:"Câblage",      quantite:50, prix:8.99,    seuil:10 },
+  { id:6, nom:"Hub USB-C 7 ports",            reference:"REF-006", categorie:"Accessoires",  quantite:4,  prix:39.90,   seuil:5 },
+  { id:7, nom:"Casque audio Sennheiser",      reference:"REF-007", categorie:"Audio",        quantite:1,  prix:149.00,  seuil:3 },
+  { id:8, nom:"Webcam Full HD 1080p",         reference:"REF-008", categorie:"Accessoires",  quantite:8,  prix:79.00,   seuil:5 },
+  { id:9, nom:"Chaise de bureau ergonomique", reference:"REF-009", categorie:"Mobilier",     quantite:0,  prix:299.00,  seuil:2 },
+  { id:10,nom:"Imprimante laser HP",          reference:"REF-010", categorie:"Impression",   quantite:5,  prix:199.00,  seuil:5 },
+];
+
+let nextId = 11;
+let selectedId = null;
+let editMode = false;
+let lowStockOnly = false;
+let searchQuery = "";
+let sortCol = 0, sortAsc = true;
+let searchTimer = null;
+
+/* ─── Render table ────────────────────────────────────────────── */
+function getDisplayProducts() {
+  let list = [...products];
+  if (lowStockOnly) list = list.filter(p => p.quantite <= p.seuil);
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    list = list.filter(p =>
+      p.nom.toLowerCase().includes(q) || p.reference.toLowerCase().includes(q)
+    );
+  }
+  list.sort((a, b) => {
+    const vals = [
+      [a.id, b.id],
+      [a.nom, b.nom],
+      [a.reference, b.reference],
+      [a.categorie, b.categorie],
+      [a.quantite, b.quantite],
+      [a.prix, b.prix],
+      [a.seuil, b.seuil],
+    ];
+    const [va, vb] = vals[sortCol];
+    const cmp = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    return sortAsc ? cmp : -cmp;
+  });
+  return list;
+}
+
+function loadTable() {
+  const tbody = document.getElementById("table-body");
+  const list = getDisplayProducts();
+  tbody.innerHTML = "";
+
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr id="empty-row"><td colspan="8">Aucun produit trouvé.</td></tr>`;
+  } else {
+    list.forEach(p => {
+      const low = p.quantite <= p.seuil;
+      const tr = document.createElement("tr");
+      if (low) tr.classList.add("low-stock");
+      if (p.id === selectedId) tr.classList.add("selected");
+      tr.dataset.id = p.id;
+      tr.innerHTML = `
+        <td class="num">${p.id}</td>
+        <td>${escHtml(p.nom)}</td>
+        <td><code>${escHtml(p.reference)}</code></td>
+        <td>${escHtml(p.categorie || "—")}</td>
+        <td class="num">${p.quantite}</td>
+        <td class="num">${p.prix.toFixed(2)}</td>
+        <td class="num">${p.seuil}</td>
+        <td>${low
+          ? `<span class="badge badge-warning">⚠ Stock faible</span>`
+          : `<span class="badge badge-ok">✔ OK</span>`}</td>
+      `;
+      tr.addEventListener("click", () => selectRow(p.id));
+      tr.addEventListener("dblclick", () => { selectRow(p.id); openEditModal(); });
+      tbody.appendChild(tr);
+    });
+  }
+
+  updateStatus(list);
+}
+
+function selectRow(id) {
+  selectedId = id;
+  document.querySelectorAll("#table-body tr").forEach(tr => {
+    tr.classList.toggle("selected", parseInt(tr.dataset.id) === id);
+  });
+}
+
+function updateStatus(list) {
+  const low = list.filter(p => p.quantite <= p.seuil).length;
+  document.getElementById("status-count").textContent =
+    `${list.length} produit(s) affiché(s)`;
+  const s = document.getElementById("status-low");
+  if (low > 0) { s.textContent = `⚠ ${low} en stock faible`; s.style.display = ""; }
+  else s.style.display = "none";
+}
+
+/* ─── Sort ────────────────────────────────────────────────────── */
+function sortTable(col) {
+  if (sortCol === col) sortAsc = !sortAsc;
+  else { sortCol = col; sortAsc = true; }
+
+  document.querySelectorAll("thead th").forEach((th, i) => {
+    th.classList.toggle("sorted", i === col);
+    const icon = th.querySelector(".sort-icon");
+    if (icon) icon.textContent = i === col ? (sortAsc ? "▲" : "▼") : "⇅";
+  });
+  loadTable();
+}
+
+/* ─── Search ──────────────────────────────────────────────────── */
+function onSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    searchQuery = document.getElementById("search-input").value.trim();
+    loadTable();
+  }, 300);
+}
+
+/* ─── Low stock toggle ────────────────────────────────────────── */
+function toggleLowStock(btn) {
+  lowStockOnly = !lowStockOnly;
+  btn.classList.toggle("active", lowStockOnly);
+  loadTable();
+}
+
+/* ─── Modal form ──────────────────────────────────────────────── */
+function resetForm() {
+  ["f-nom","f-ref","f-cat"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("f-qty").value   = "0";
+  document.getElementById("f-prix").value  = "0.00";
+  document.getElementById("f-seuil").value = "5";
+}
+
+function openAddModal() {
+  editMode = false;
+  resetForm();
+  document.getElementById("modal-title").textContent = "Ajouter un produit";
+  document.getElementById("f-ref").readOnly = false;
+  document.getElementById("form-overlay").classList.add("open");
+  document.getElementById("f-nom").focus();
+}
+
+function openEditModal() {
+  if (!selectedId) { toast("Veuillez sélectionner un produit."); return; }
+  const p = products.find(x => x.id === selectedId);
+  if (!p) return;
+  editMode = true;
+  document.getElementById("modal-title").textContent = "Modifier le produit";
+  document.getElementById("f-nom").value   = p.nom;
+  document.getElementById("f-ref").value   = p.reference;
+  document.getElementById("f-ref").readOnly = true;
+  document.getElementById("f-qty").value   = p.quantite;
+  document.getElementById("f-prix").value  = p.prix.toFixed(2);
+  document.getElementById("f-seuil").value = p.seuil;
+  document.getElementById("f-cat").value   = p.categorie || "";
+  document.getElementById("form-overlay").classList.add("open");
+  document.getElementById("f-nom").focus();
+}
+
+function closeModal() {
+  document.getElementById("form-overlay").classList.remove("open");
+}
+
+function submitForm() {
+  const nom   = document.getElementById("f-nom").value.trim();
+  const ref   = document.getElementById("f-ref").value.trim();
+  const qty   = parseInt(document.getElementById("f-qty").value);
+  const prix  = parseFloat(document.getElementById("f-prix").value);
+  const seuil = parseInt(document.getElementById("f-seuil").value);
+  const cat   = document.getElementById("f-cat").value.trim();
+
+  if (!nom)  { flashField("f-nom"); toast("Le nom est obligatoire."); return; }
+  if (!ref)  { flashField("f-ref"); toast("La référence est obligatoire."); return; }
+  if (isNaN(qty) || qty < 0)   { flashField("f-qty");  toast("Quantité invalide."); return; }
+  if (isNaN(prix) || prix < 0) { flashField("f-prix"); toast("Prix invalide."); return; }
+
+  if (editMode) {
+    const p = products.find(x => x.id === selectedId);
+    Object.assign(p, { nom, quantite: qty, prix, seuil: isNaN(seuil) ? 5 : seuil, categorie: cat || "—" });
+    toast("Produit mis à jour avec succès.");
+  } else {
+    if (products.find(x => x.reference === ref)) {
+      flashField("f-ref"); toast(`La référence "${ref}" existe déjà.`); return;
+    }
+    const p = { id: nextId++, nom, reference: ref, categorie: cat || "—", quantite: qty, prix, seuil: isNaN(seuil) ? 5 : seuil };
+    products.push(p);
+    selectedId = p.id;
+    toast("Produit ajouté avec succès.");
+  }
+  closeModal();
+  loadTable();
+}
+
+/* ─── Confirm / Delete ────────────────────────────────────────── */
+function openConfirm() {
+  if (!selectedId) { toast("Veuillez sélectionner un produit."); return; }
+  document.getElementById("confirm-overlay").classList.add("open");
+}
+function closeConfirm() {
+  document.getElementById("confirm-overlay").classList.remove("open");
+}
+function deleteSelected() {
+  products = products.filter(p => p.id !== selectedId);
+  selectedId = null;
+  closeConfirm();
+  loadTable();
+  toast("Produit supprimé.");
+}
+
+/* ─── Helpers ─────────────────────────────────────────────────── */
+function escHtml(s) {
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function flashField(id) {
+  const el = document.getElementById(id);
+  el.style.borderColor = "#E74C3C";
+  setTimeout(() => el.style.borderColor = "", 1500);
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2800);
+}
+
+/* ─── Keyboard shortcuts ──────────────────────────────────────── */
+document.addEventListener("keydown", e => {
+  if (document.getElementById("form-overlay").classList.contains("open") ||
+      document.getElementById("confirm-overlay").classList.contains("open")) {
+    if (e.key === "Escape") { closeModal(); closeConfirm(); }
+    if (e.key === "Enter" && document.getElementById("form-overlay").classList.contains("open"))
+      submitForm();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === "n") { e.preventDefault(); openAddModal(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === "e") { e.preventDefault(); openEditModal(); }
+  if (e.key === "Delete") openConfirm();
+  if (e.key === "F5")     { e.preventDefault(); loadTable(); toast("Liste actualisée."); }
+});
+
+/* ─── Close overlay on backdrop click ────────────────────────── */
+document.querySelectorAll(".overlay").forEach(o =>
+  o.addEventListener("click", e => { if (e.target === o) { closeModal(); closeConfirm(); } })
+);
+
+/* ─── Init ────────────────────────────────────────────────────── */
+loadTable();
+</script>
+</body>
+</html>
